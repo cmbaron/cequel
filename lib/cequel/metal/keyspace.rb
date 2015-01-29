@@ -30,6 +30,8 @@ module Cequel
       attr_writer :default_consistency
       # @return [Hash] credentials for connect to cassandra
       attr_reader :credentials
+      # @return [OpenSSL::SSL::SSLContext] ssl context to use to connect to Cassandra
+      attr_reader :ssl_context
 
       #
       # @!method write(statement, *bind_vars)
@@ -111,6 +113,11 @@ module Cequel
       # @option configuration [String] :password password to auth with (leave
       #   blank for no auth)
       # @option configuration [String] :keyspace name of keyspace to connect to
+      # @option configuration [Boolean] :use_ssl enable/disable ssl/tls support
+      # @option configuration [String] :ssl_ca_certificate_file path to CA certificate
+      # @option configuration [String] :ssl_client_key_file path to client key file
+      # @option configuration [String] :ssl_client_key_passphrase passphrase used to encrypt client private key
+      # @option configuration [String] :ssl_client_certificate_file path to client certificate
       # @return [void]
       #
       def configure(configuration = {})
@@ -124,6 +131,7 @@ module Cequel
         @credentials  = extract_credentials(configuration)
         @max_retries  = extract_max_retries(configuration)
         @retry_delay  = extract_retry_delay(configuration)
+        @ssl_context  = extract_ssl_context(configuration)
 
         @name = configuration[:keyspace]
         @default_consistency = configuration[:default_consistency].try(:to_sym)
@@ -258,6 +266,7 @@ module Cequel
       def client_options
         {hosts: hosts, port: port}.tap do |options|
           options[:credentials] = credentials if credentials
+          options[:ssl] = ssl_context if ssl_context
         end
       end
 
@@ -303,6 +312,23 @@ module Cequel
 
       def extract_retry_delay(configuration)
         configuration.fetch(:retry_delay, 0.5)
+      end
+
+      def extract_ssl_context(configuration)
+        if configuration.fetch(:use_ssl, false)
+          ssl_context = OpenSSL::SSL::SSLContext.new
+          if configuration[:ssl_ca_cert_file]
+            ssl_context.verify_mode = OpenSSL::SSL::VERIFY_PEER
+            ssl_context.ca_file = configuration[:ssl_ca_certificate_file]
+          end
+          if configuration[:ssl_client_key_file]
+            ssl_context.key = OpenSSL::PKey::RSA.new(File.read(client_key), configuration.fetch(:ssl_client_key_passphrase, nil))
+          end
+          if configuration[:ssl_client_certificate_file]
+            ssl_context.cert = OpenSSL::X509::Certificate.new(File.read(client_cert))
+          end
+          ssl_context
+        end
       end
     end
   end
